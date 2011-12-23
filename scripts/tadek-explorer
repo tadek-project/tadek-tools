@@ -1,0 +1,341 @@
+#!/usr/bin/env python
+
+################################################################################
+##                                                                            ##
+## This file is a part of TADEK.                                              ##
+##                                                                            ##
+## TADEK - Test Automation in a Distributed Environment                       ##
+## (http://tadek.comarch.com)                                                 ##
+##                                                                            ##
+## Copyright (C) 2011 Comarch S.A.                                            ##
+## All rights reserved.                                                       ##
+##                                                                            ##
+## TADEK is free software for non-commercial purposes. For commercial ones    ##
+## we offer a commercial license. Please check http://tadek.comarch.com for   ##
+## details or write to tadek-licenses@comarch.com                             ##
+##                                                                            ##
+## You can redistribute it and/or modify it under the terms of the            ##
+## GNU General Public License as published by the Free Software Foundation,   ##
+## either version 3 of the License, or (at your option) any later version.    ##
+##                                                                            ##
+## TADEK is distributed in the hope that it will be useful,                   ##
+## but WITHOUT ANY WARRANTY; without even the implied warranty of             ##
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              ##
+## GNU General Public License for more details.                               ##
+##                                                                            ##
+## You should have received a copy of the GNU General Public License          ##
+## along with TADEK bundled with this file in the file LICENSE.               ##
+## If not, see http://www.gnu.org/licenses/.                                  ##
+##                                                                            ##
+## Please notice that Contributor Agreement applies to any contribution       ##
+## you make to TADEK. The Agreement must be completed, signed and sent        ##
+## to Comarch before any contribution is made. You should have received       ##
+## a copy of Contribution Agreement along with TADEK bundled with this file   ##
+## in the file CONTRIBUTION_AGREEMENT.pdf or see http://tadek.comarch.com     ##
+## or write to tadek-licenses@comarch.com                                     ##
+##                                                                            ##
+################################################################################
+
+import os
+import re
+import sys
+import optparse
+
+from tadek.core import config
+config.setProgramName("tadek-explorer")
+
+from tadek.core import log
+from tadek.core import constants
+from tadek.core.devices import DEFAULT_IP, DEFAULT_PORT, CONFIG_NAME
+
+sys.path.insert(0, os.path.join(config.DATA_DIR, "tools"))
+
+import explore
+import utils
+
+USAGE = '''%prog [OPTION]...'''
+
+DESC = '''
+%%prog is a command-line tool for interacting with UI elements
+which uses accessibility. It also provides the possibility to
+send mouse and keyboard (hardware) events.
+%%prog can be used both remotely and locally. Beside using
+system configuration you can specify a device address to connect to
+in your configuration file in home directory.
+A file .tadek/config/tadek-explorer/%s.conf is used or,
+if it does not exist, .tadek/config/common/%s.conf.
+  
+Example of configuration file:
+    [local]
+    address=127.0.0.1
+    port=48089
+
+    [device1]
+    address=192.168.254.128
+    
+Examples of use:
+    Connect to the local machine on the port 8089 and show all elements with
+    their children starting from an element given in the --path option:
+    $ %%prog --path=/0/5 --device=127.0.0.1:8089 --dump-all
+
+    Connect to the local (default) device and show all elements with
+    their children. It is a recursive dump:
+    $ %%prog -p / --dump-all
+
+    Connect to device "device1" given in the configuration file and
+    show first accessibility element with applications as its children:
+    $ %%prog -d device1 --path /0 --dump 1
+
+    Connect to the local (default) device and show description
+    of an application of index 12 in first accessibility element:
+    $ %%prog --path /0/12 --description
+
+    Connect to the local (default) device and execute the mouse left button
+    click at screen coordinates (10, 15) using accessibility given in
+    --path option:
+    $ %%prog --mouse-click 10 15 --button=LEFT --path /0
+
+    Connect to the local (default) device and insert content of 'text.txt'
+    file to element given in --path option:
+    $ %%prog --textfile=text.txt --path /0/12/0/3
+
+    Connect to the local (default) device and execute the 'click' action
+    on an element given in the --path option. It works for button elements,
+    for example:
+    $ %%prog --action click --path /0/12/0/0/0/4
+''' % (CONFIG_NAME, CONFIG_NAME)
+
+DEVICE_HELP = '''OPTIONAL. Connects to given device (DEVICE=IP[:port]|NAME).
+Parameter NAME is section name from devices configuration file '%s.conf'.
+If this option is not specified it connects to default address %s:%d.
+''' % (CONFIG_NAME, DEFAULT_IP, DEFAULT_PORT)
+
+PATH_HELP = '''MANDATORY. Path to accessible element. Indexes separated by '/'
+character. Path always starts with '/'.'''
+
+DUMP_HELP = '''Shows tree of accessible elements starting from element given in
+path attribute. Depth means how deep the tree will be (depth=-1 means that all
+descendants will be get, equivalent to '--dump-all').'''
+
+DUMP_ALL_HELP = '''Shows all accessible elements with all their children
+starting from element given in path attribute. It is equivalent to option
+'--dump' with depth -1.'''
+
+MOUSE_HELP = '''Generates mouse events. All events require coordinates.
+Options '--mouse-click', '--mouse-double-click', '--mouse-press'
+and '--mouse-release' require the option '--button'. Options
+'--mouse-absolute' and '--mouse-relative' forbid
+the option '--button'.'''
+
+KEY_HELP = '''Generates keyboard event. It consists of a key symbol or
+a single character or a keycode and an optional list of modifier
+symbols (e.g. 'LEFT_SHIFT', 'RIGHT_ALT'). The keycode should be
+written as a hexadecimal number (starting with 0x).'''
+
+ACTIONS = ("FOCUS", ) + constants.ACTIONS
+
+MANDATORY_OPTIONS = (
+    "path",
+)
+
+requestOptions = {}
+
+def destOption(dest):
+    '''
+    Returns the option name related to the given destination attribute.
+    '''
+    for name, dst in requestOptions.iteritems():
+        if dest == dst:
+            return name
+    return dest
+
+def checkOption(option, opt_str, value, parser, *args, **kwargs):
+    '''
+    A callback function for checking the given option value.
+    '''
+    if isinstance(value, basestring) and (not kwargs.get("preserve_case")):
+        value = value.upper()
+    if "choices" in kwargs and value not in kwargs["choices"]:
+        choices = ", ".join(map(repr, kwargs["choices"]))
+        raise optparse.OptionValueError(
+                            "option %s: invalid choice: %r (choose from: %s)"
+                             % (option, value, choices))
+    dest = getattr(parser.values, option.dest)
+    multiple = kwargs.get("multiple", False)
+    if dest is not None and not multiple:
+        raise optparse.OptionValueError("%s option can be used only once"
+                                         % option)
+    if dest is not None:
+        dest.append(value)
+    elif multiple:
+        setattr(parser.values, option.dest, [value])
+    else:
+        setattr(parser.values, option.dest, value)
+
+def checkPathOption(option, opt_str, value, parser):
+    '''
+    A callback function for checking the given value of the path option.
+    '''
+    dest = getattr(parser.values, option.dest)
+    if dest is not None:
+        raise optparse.OptionValueError("%s option can be used only once"
+                                         % option)
+    if value is None:
+        return
+    if re.match("^(\/|(\/(\d|([1-9]\d+)))+)$", value) is None:
+        raise optparse.OptionValueError("%s option: invalid argument format: %r"
+                                         % (option, value))
+    setattr(parser.values, option.dest, value)
+
+def reqestOption(group, name, **kwargs): 
+    '''
+    Adds a request option of the given name to the specified option group.
+    '''
+    option = group.add_option("--%s" % name, **kwargs)
+    requestOptions[name] = option.dest
+
+if __name__ == "__main__":
+    try:
+        parser = optparse.OptionParser(usage=USAGE, description=DESC,
+                                       formatter=utils.LineFormatter(),
+                                       version=config.VERSION_STRING)
+        parser.add_option("-d", "--device", action="callback", dest="device",
+                          callback=checkOption, type=str, nargs=1,
+                          help=DEVICE_HELP, callback_kwargs={
+                                "preserve_case": True,
+                                "multiple": True
+                          })
+        parser.add_option("-p", "--path", action="callback", dest="path",
+                          callback=checkPathOption, type=str, nargs=1,
+                          help=PATH_HELP)
+        parser.add_option("-o", "--output", metavar="FILE",
+                          help="OPTIONAL. Saves dump to file. Requires one of "
+                               "options '--dump' or '--dump-all'.")
+
+        group = optparse.OptionGroup(parser, "ACCESSIBILITY REQUESTS")
+        reqestOption(group, "dump", metavar="DEPTH", help=DUMP_HELP)
+        reqestOption(group, "dump-all", action="store_true", help=DUMP_ALL_HELP)
+        reqestOption(group, "all", action="store_true",
+                     help="Shows all available information about element.")
+        reqestOption(group, "description", action="store_true",
+                     help="Shows element description.")
+        reqestOption(group, "position", action="store_true",
+                     help="Shows element position if available.")
+        reqestOption(group, "size", action="store_true",
+                     help="Shows element size if available.")
+        reqestOption(group, "text", action="store_true",
+                     help="Shows element text content if available.")
+        reqestOption(group, "value", action="store_true",
+                     help="Shows element current value if available.")
+        reqestOption(group, "actions", action="store_true",
+                     help="Shows element actions if available.")
+        reqestOption(group, "attributes", action="store_true",
+                     help="Shows element attributes if available.")
+        reqestOption(group, "relations", action="store_true",
+                     help="Shows element relations if available.")
+        reqestOption(group, "states", action="store_true",
+                     help="Shows element states if available.")
+        reqestOption(group, "action", action="callback", callback=checkOption,
+                     type="string", help="Executes given action on element.",
+                     callback_kwargs={"choices": ACTIONS})
+        reqestOption(group, "set-text", metavar="TEXT",
+                     help="Sets element text content.")
+        reqestOption(group, "set-text-file", metavar="FILE",
+                     help="Sets element text content from given file.")
+        reqestOption(group, "set-value", metavar="VALUE",
+                     help="Sets element current value.")
+        parser.add_option_group(group)
+
+        group = optparse.OptionGroup(parser, "MOUSE EVENT REQUESTS",
+                                     MOUSE_HELP)
+        reqestOption(group, "mouse-click", action="callback", metavar="X Y",
+                     callback=checkOption, type="int", nargs=2,
+                     help="Executes mouse CLICK request on given "
+                          "integer coordinates.")
+        reqestOption(group, "mouse-double-click", action="callback",
+                      callback=checkOption, type="int", nargs=2, metavar="X Y",
+                      help="Executes mouse DOUBLE_CLICK request on "
+                           "given integer coordinates.")
+        reqestOption(group, "mouse-press", action="callback", metavar="X Y",
+                     callback=checkOption, type="int", nargs=2,
+                     help="Executes mouse PRESS request on given "
+                          "integer coordinates.")
+        reqestOption(group, "mouse-release", action="callback", metavar="X Y",
+                     callback=checkOption, type="int", nargs=2,
+                     help="Executes mouse RELEASE request on given "
+                          "integer coordinates.")
+        reqestOption(group, "mouse-absolute-motion", action="callback",
+                     callback=checkOption, type="int", nargs=2, metavar="X Y",
+                     help="Moves mouse cursor to given integer "
+                          "coordinates.")
+        reqestOption(group, "mouse-relative-motion", action="callback",
+                     callback=checkOption, type="int", nargs=2, metavar="X Y",
+                     help="Moves mouse cursor by given vector.")
+        group.add_option("--button", action="callback", dest="button", 
+                         type="string", callback=checkOption,
+                         callback_kwargs={"choices": constants.BUTTONS},
+                         help="Mouse button name, 'LEFT' by default")
+        parser.add_option_group(group)
+
+        group = optparse.OptionGroup(parser, "KEYBOARD EVENT REQUEST",
+                                     KEY_HELP)
+        reqestOption(group, "key", action="callback",
+                     type="string", callback=checkOption,
+                     help="Key symbol or keycode or single character.",
+                     metavar="KEYSYM|KEYCODE|SINGLE_CHARACTER",
+                     callback_kwargs={"preserve_case": True})
+        modifiers = [m for m in constants.KEY_CODES.keys()
+                     if "_SHIFT" in m or "_CONTROL" in m or "_ALT" in m]
+        group.add_option("--mod", action="callback", callback=checkOption,
+                         type="string", dest="modifiers", metavar="KEYSYM",
+                         help="Modifier symbol. Can be added multiple times.",
+                         callback_kwargs={
+                            "choices": modifiers,
+                            "multiple": True
+                         })
+        parser.add_option_group(group)
+
+        options = {}
+        opts, args = parser.parse_args()
+        for dest, value in vars(opts).iteritems():
+            if value is not None:
+                options[destOption(dest)] = value
+        log.info("Process options and arguments: %s, %s" % (options, args))
+
+        if len(args) > 0:
+            parser.error("no positional arguments required")
+
+        for name in MANDATORY_OPTIONS:
+            if name not in options:
+                parser.error("mandatory option '--%s' is missing" % name)
+
+        if ("output" in options and "dump" not in options
+            and "dump-all" not in options):
+            parser.error("option --dump or --dump-all is required "
+                         "when using --output")
+
+        if ("mouse-click" in options or "mouse-double-click" in options
+            or "mouse-press" in options or "mouse-release" in options):
+            options.setdefault("button", "LEFT")
+
+        if "modifiers" in options and "key" not in options:
+            parser.error("--key option is required when using --mod")
+
+        count = 0
+        for name in requestOptions:
+            if name in options:
+                count += 1
+        if count == 0:
+            parser.error("request option is missing")
+        elif count > 1:
+            opts = ["--%s" % name for name in requestOptions]
+            parser.error("only one of following request options can be "
+                         "used at the same time: %s" % ", ".join(opts))
+
+        explore.performRequest(utils.getDevices(options.pop("device", None))[0],
+                               options)
+    except KeyboardInterrupt:
+        print >> sys.stderr, "\nRequest interrupted"
+    except Exception, err:
+        utils.exitWithError(err)
+
