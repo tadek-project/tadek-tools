@@ -7,7 +7,7 @@
 ## TADEK - Test Automation in a Distributed Environment                       ##
 ## (http://tadek.comarch.com)                                                 ##
 ##                                                                            ##
-## Copyright (C) 2011 Comarch S.A.                                            ##
+## Copyright (C) 2011,2012 Comarch S.A.                                       ##
 ## All rights reserved.                                                       ##
 ##                                                                            ##
 ## TADEK is free software for non-commercial purposes. For commercial ones    ##
@@ -37,23 +37,38 @@
 ################################################################################
 
 import os
+import sys
 from glob import glob
 from distutils.core import setup
+from distutils.command.install import install as _install
 try:
     from tadek.core.config import DATA_DIR, VERSION
 except ImportError:
-    print "Required tadek-common package is not installed"
+    print >> sys.stderr, "Required tadek-common package is not installed"
     exit(1)
 
-
 DATA_FILES = [
-    (os.path.join(DATA_DIR, "tools"),
-        glob(os.path.join("src", "*.py"))),
+    (os.path.join(DATA_DIR, "tools"), glob(os.path.join("src", "*.py"))),
 ]
+
+class install(_install):
+    sub_commands = []
+    # Skip the install_egg_info sub-command
+    for name, method in _install.sub_commands:
+        if name != "install_egg_info":
+            sub_commands.append((name, method))
+    del name, method
 
 setup(
     name="tadek-tools",
     version=VERSION,
+    description="TADEK command-line clients: tadek, tadek-explorer, tadek-conf",
+    long_description=''.join(['\n', open("README").read()]),
+    author="Comarch TADEK Team",
+    author_email="tadek@comarch.com",
+    license="http://tadek.comarch.com/licensing",
+    url="http://tadek.comarch.com/",
+    cmdclass={"install": install},
     scripts=["scripts/tadek",
              "scripts/tadek-conf",
              "scripts/tadek-explorer"],
