@@ -40,7 +40,10 @@ import os
 import sys
 from glob import glob
 from distutils.core import setup
+from distutils.util import convert_path
 from distutils.command.install import install as _install
+from distutils.command.build_scripts import build_scripts as _build_scripts
+
 try:
     from tadek.core.config import DATA_DIR, VERSION
 except ImportError:
@@ -50,6 +53,21 @@ except ImportError:
 DATA_FILES = [
     (os.path.join(DATA_DIR, "tools"), glob(os.path.join("src", "*.py"))),
 ]
+
+class build_scripts(_build_scripts):
+    def run(self):
+        _build_scripts.run(self)
+        if self.scripts and os.name == "nt":
+            # Make sure that all installed scripts have .py extension
+            for file in self.scripts:
+                file = convert_path(file)
+                file = os.path.join(self.build_dir, os.path.basename(file))
+                root, ext = os.path.splitext(file)
+                path = root + ".py"
+                if os.path.exists(path):
+                    os.remove(file)
+                else:
+                    self.move_file(file, path)
 
 class install(_install):
     sub_commands = []
@@ -68,10 +86,10 @@ setup(
     author_email="tadek@comarch.com",
     license="http://tadek.comarch.com/licensing",
     url="http://tadek.comarch.com/",
-    cmdclass={"install": install},
-    scripts=["scripts/tadek",
-             "scripts/tadek-conf",
-             "scripts/tadek-explorer"],
+    cmdclass={"build_scripts": build_scripts, "install": install},
+    scripts=["scripts/tadek-conf",
+             "scripts/tadek-explorer",
+             "scripts/tadek-runner"],
     data_files=DATA_FILES,
 )
 
