@@ -52,15 +52,13 @@ sys.path.insert(0, os.path.join(config.DATA_DIR, "tools"))
 import test
 import utils
 
-_TEST_DIR = testcases.__path__[0]
+USAGE = '''%prog [OPTION]... [TESTPATH]...'''
 
-_USAGE = '''%prog [OPTION]... [TESTPATH]...'''
-
-_DESC = '''%%prog is a tool to execute test cases written with TADEK. 
+DESC = '''%%prog is a tool to execute test cases written with TADEK. 
 Tests cases can be executed locally or remotely on specified devices.
 
 Arguments are list of paths to test cases. 
-Default directory for test cases is located in %s.
+A default directory for test cases is located in %s.
   
 Examples of use:
     Execute all available test cases of all applications on default device:
@@ -79,30 +77,29 @@ Examples of use:
     the first is 'testdevice' from configuration file and the second
     is a device with an address 192.168.23.129:
     $ %%prog -d testdevice -d 192.168.23.129 -l /home/user/customCases testapp.testmodule
-''' % (_TEST_DIR, )
+''' % testcases.__path__[0]
 
-_DEVICE_HELP = '''OPTIONAL. Specify a device on which tests will run. The device
+DEVICE_HELP = '''OPTIONAL. Specify a device on which tests will run. The device
 can be specified in two different ways: device name from configuration file
 %s.conf or as IP[:port(default %d)]. If there is no device specified, a default
 device %s:%d will be used. This option can be used multiple times.
 ''' % (CONFIG_NAME, DEFAULT_PORT, DEFAULT_IP, DEFAULT_PORT)
 
-_LOCATION_HELP = '''OPTIONAL. Specify location of test case directories.
-Paths can be relative or absolute. It can be used multiple times.
-'''
+LOCATION_HELP = '''OPTIONAL. Specify location of test case directories.
+Paths can be relative or absolute. It can be used multiple times.'''
 
 if __name__ == '__main__':
+    parser = optparse.OptionParser(prog=config.getProgramName(),
+                                   usage=USAGE, description=DESC,
+                                   formatter=utils.LineFormatter(),
+                                   version=config.getProgramVersion())
+    parser.add_option('-d', '--device', action="append",
+                      dest='device', help=DEVICE_HELP)
+    parser.add_option('-l', '--location', action="append",
+                      dest='location', help=LOCATION_HELP)
+    opts, args = parser.parse_args()
+    log.info("Got options and arguments: %s, %s" % (opts, args))
     try:
-        parser = optparse.OptionParser(usage=_USAGE, description=_DESC,
-                                       formatter=utils.LineFormatter(),
-                                       version=config.VERSION_STRING)
-        parser.add_option('-d', '--device', action="append", dest='device',
-                          help=_DEVICE_HELP)
-        parser.add_option('-l', '--location', action="append", dest='location',
-                          help=_LOCATION_HELP)
-        opts, args = parser.parse_args()
-        log.info("Got options and arguments: %s, %s" % (opts, args))
-
         result = test.runTestCases(args, opts.location if opts.location else [],
                                    utils.getDevices(opts.device))
         test.printResult(result)

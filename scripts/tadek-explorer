@@ -55,8 +55,7 @@ import utils
 
 USAGE = '''%prog [OPTION]...'''
 
-DESC = '''
-%%prog is a command-line tool for interacting with UI elements
+DESC = '''%%prog is a command-line tool for interacting with UI elements
 which uses accessibility. It also provides the possibility to
 send mouse and keyboard (hardware) events.
 %%prog can be used both remotely and locally. Beside using
@@ -64,7 +63,7 @@ system configuration you can specify a device address to connect to
 in your configuration file in home directory.
 A file .tadek/config/tadek-explorer/%s.conf is used or,
 if it does not exist, .tadek/config/common/%s.conf.
-  
+
 Example of configuration file:
     [local]
     address=127.0.0.1
@@ -72,7 +71,7 @@ Example of configuration file:
 
     [device1]
     address=192.168.254.128
-    
+
 Examples of use:
     Connect to the local machine on the port 8089 and show all elements with
     their children starting from an element given in the --path option:
@@ -196,9 +195,10 @@ def reqestOption(group, name, **kwargs):
 
 if __name__ == "__main__":
     try:
-        parser = optparse.OptionParser(usage=USAGE, description=DESC,
+        parser = optparse.OptionParser(prog=config.getProgramName(),
+                                       usage=USAGE, description=DESC,
                                        formatter=utils.LineFormatter(),
-                                       version=config.VERSION_STRING)
+                                       version=config.getProgramVersion())
         parser.add_option("-d", "--device", action="callback", dest="device",
                           callback=checkOption, type=str, nargs=1,
                           help=DEVICE_HELP, callback_kwargs={
