@@ -41,7 +41,7 @@ import sys
 import optparse
 
 from tadek.core import config
-config.setProgramName("tadek")
+config.setProgramName("tadek-runner")
 
 from tadek import testcases
 from tadek.core import log
