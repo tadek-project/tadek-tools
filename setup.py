@@ -80,7 +80,8 @@ class install(_install):
 setup(
     name="tadek-tools",
     version=VERSION,
-    description="TADEK command-line clients: tadek, tadek-explorer, tadek-conf",
+    description="TADEK command-line clients: tadek-runner, "
+                "tadek-explorer and tadek-conf",
     long_description=''.join(['\n', open("README").read()]),
     author="Comarch TADEK Team",
     author_email="tadek@comarch.com",
